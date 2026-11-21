@@ -41,6 +41,33 @@ The script uses the uploaded bridge, starts a temporary container on the host ne
 
 The successful run produced 63 GridMap messages, with 48 distinct timestamps on nonempty maps. In the 10 s steady window, output was **5.02 Hz** and distinct map timestamps updated at **3.61 Hz**. Timestamped TF lookup succeeded for **199 of 203** paired scans. The final 8 × 8 m map at 0.04 m resolution held **6,180** finite elevation cells. The first GPU fusion took about six seconds. Map publication and new-scan incorporation are separate measurements.
 
+## Continuous publication
+
+On the Orin, run the launcher from the deployed source checkout. Set
+`ORIN_DEPLOY_DIR` to the directory containing `livox_to_pointcloud2.py`,
+`LIVOX_ROS_SETUP` to the Livox workspace setup script, and `ORIN_TEST_IMAGE`
+if the CycloneDDS image has a custom tag.
+
+```bash
+export ORIN_DEPLOY_DIR='<ABSOLUTE_DEPLOY_PATH>'
+export LIVOX_ROS_SETUP='<ABSOLUTE_LIVOX_SETUP_PATH>'
+export ORIN_TEST_IMAGE=elevation_mapping:orin-humble-cyclone
+
+nohup bash docker/run_orin_live.sh </dev/null >"$ORIN_DEPLOY_DIR/map-live.log" 2>&1 &
+```
+
+The launcher uses the domain 76 CycloneDDS settings from FAST-LIO unless
+`CYCLONEDDS_URI` is already set. It keeps the verified 5 Hz publication
+target, scan-time TF checks, and the two-filter setup. Set
+`ORIN_CONTAINER_NAME` for a custom Docker container name. Stop the default
+instance with `docker stop elevation-orin-live`. The launcher then stops its
+Livox bridge.
+
+For RViz, use Fixed Frame `odom`, GridMap topic
+`/elevation_orin_test76/elevation_map`, and Height Layer `smooth`.
+The existing Orin publisher was verified to produce finite elevation cells.
+Viewing that map across hosts still requires DDS network connectivity.
+
 ## Remaining work
 
 - RViz visualization of the real map, sustained full-rate input and 10 Hz output have not been verified. The 5 Hz result used TF-gated, rate-limited input.
