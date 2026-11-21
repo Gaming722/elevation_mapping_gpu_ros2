@@ -48,6 +48,44 @@ GPU-accelerated elevation mapping for robotic navigation and locomotion. This pa
 - **GPU**: NVIDIA GPU with CUDA support
 - **Docker**: 20.10+ with NVIDIA Container Toolkit
 
+### NVIDIA Jetson AGX Orin
+
+The Orin-specific build was verified on NVIDIA Jetson AGX Orin (ARM64) with
+Jetson Linux L4T R36.5.2, Ubuntu 22.04, and an NVIDIA-enabled Docker runtime.
+The image uses ROS 2 Humble, Python 3.10, and CUDA 12.6 from the Jetson base
+image. The build pins Jetson wheels for PyTorch 2.8.0 and torchvision 0.23.0
+and retains Chainer 7.8.1 as an optional backend.
+
+From this branch, initialize the submodule and build the image:
+
+```bash
+git submodule update --init --recursive
+ROS_DISTRO=humble \
+  ORIN_HUMBLE_BASE=humble_cp310:l4t-r36.5.0-pybind11 \
+  IMAGE_NAME=elevation_mapping:orin-humble-cu126 \
+  bash docker/build_orin.sh
+```
+
+The base image above was already available on the tested Orin. Set
+`ORIN_HUMBLE_BASE` to a compatible Jetson ARM64 Ubuntu 22.04/CUDA 12.6 image
+available to your Docker builder.
+
+CuPy 13.6.0 and PyTorch 2.8.0 both completed GPU calculations. The synthetic
+depth demo also produced a populated `GridMap` on
+`/elevation_mapping_node/elevation_map`. On the tested base image, the
+default `ros` user could not access the interpreter linked from
+`/opt/venv/bin/python`. The tests used `/usr/bin/python3` with
+`/opt/venv/lib/python3.10/site-packages` on `PYTHONPATH`. To reproduce the
+synthetic test after sourcing the ROS and workspace setup scripts inside the
+container, run:
+
+```bash
+export PATH="/usr/bin:$PATH"
+export PYTHONPATH="/opt/venv/lib/python3.10/site-packages${PYTHONPATH:+:$PYTHONPATH}"
+ros2 launch elevation_mapping_cupy synthetic_depth_demo.launch.py \
+  launch_rviz:=false use_sim_time:=false
+```
+
 ## Setup
 
 ### 1. Clone the Repo

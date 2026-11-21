@@ -22,8 +22,7 @@ ARG USER_UID=1000
 ARG USER_GID=${USER_UID}
 ARG RMW_NAME=cyclonedds
 ARG INSTALL_EMCUPY_ROSDEPS=true
-ARG TORCH_INSTALL_INDEX_URL=https://pypi.org/simple
-ARG TORCH_INSTALL_EXTRA_INDEX_URL=https://pypi.jetson-ai-lab.dev/jp6/cu126
+ARG TORCH_INSTALL_INDEX_URL=https://pypi.jetson-ai-lab.io/jp6/cu126
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=en_US.UTF-8 \
@@ -104,9 +103,8 @@ RUN python3 -m venv --system-site-packages ${VIRTUAL_ENV} \
 
 # ── PyTorch (Jetson wheels) ───────────────────────────────────────────────────
 RUN PIP_INDEX_URL=${TORCH_INSTALL_INDEX_URL} \
-    PIP_EXTRA_INDEX_URL=${TORCH_INSTALL_EXTRA_INDEX_URL} \
     ${VIRTUAL_ENV}/bin/pip install -U --retries 2 --timeout 120 \
-        torch torchvision \
+        torch==2.8.0 torchvision==0.23.0 \
     && ${VIRTUAL_ENV}/bin/pip install -U --retries 2 --timeout 120 'setuptools<80'
 
 # ── General Python packages ──────────────────────────────────────────────────
@@ -129,7 +127,8 @@ RUN if [ "$INSTALL_EMCUPY_ROSDEPS" = "true" ]; then \
             shapely \
             scipy \
             transforms3d \
-            chainer; \
+        && ${VIRTUAL_ENV}/bin/pip install --no-build-isolation --retries 2 --timeout 120 \
+            chainer==7.8.1; \
     fi
 
 # ── elevation_mapping_cupy apt deps ─────────────────────────────────────────
@@ -247,15 +246,18 @@ RUN ln -sf ${ROS_WS}/src/elevation_mapping_gpu_ros2/docker/extra_rosdeps.yaml \
     && echo "yaml file:///etc/ros/rosdep/sources.list.d/emcupy-rosdeps.yaml" \
         > /etc/ros/rosdep/sources.list.d/00-emcupy-rosdeps.list
 
-# Build – keep rosdep resolution for Jetson-specific overlays, then use system colcon.
+# Resolve ROS dependencies, keeping the Python wheels installed in the dev stage.
+# cmake_clang_tools is optional in the bundled plane segmentation packages.
 RUN --mount=type=cache,target=/root/.cache/pip \
     bash -c "\
         source /opt/ros/${ROS_DISTRO}/setup.bash && \
         export PATH=/usr/bin:/bin:\$PATH && \
         cd ${ROS_WS} && \
+        apt-get update && \
+        apt-get install -y --no-install-recommends libmpfr-dev && \
         rosdep update --rosdistro ${ROS_DISTRO} && \
         rosdep install --from-paths src --ignore-src -y -r --rosdistro ${ROS_DISTRO} \
-            --skip-keys='numpy numpy_lessthan_2 catkin roscpp gazebo_ros_pkgs gazebo_ros gazebo_plugins cupy-cuda12x simple-parsing' && \
+            --skip-keys='numpy numpy_lessthan_2 catkin roscpp gazebo_ros_pkgs gazebo_ros gazebo_plugins cupy-cuda12x simple-parsing python3-torch python3-torchvision python3-sklearn libmpfr-dev cmake_clang_tools' && \
         /usr/bin/colcon build \
             --merge-install \
             --event-handlers=console_direct+ \
