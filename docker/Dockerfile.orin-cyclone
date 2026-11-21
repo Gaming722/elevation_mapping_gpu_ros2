@@ -1,0 +1,7 @@
+ARG ORIN_BASE_IMAGE=elevation_mapping:orin-humble
+FROM ${ORIN_BASE_IMAGE}
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ros-humble-rmw-cyclonedds-cpp \
+    && rm -rf /var/lib/apt/lists/*
+USER ros
