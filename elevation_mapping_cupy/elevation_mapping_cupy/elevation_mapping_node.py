@@ -22,7 +22,7 @@ from rclpy.duration import Duration
 from rclpy.serialization import serialize_message, deserialize_message
 from grid_map_msgs.msg import GridMap
 from grid_map_msgs.srv import SetGridMap, ProcessFile
-from geometry_msgs.msg import Vector3, Quaternion
+from geometry_msgs.msg import Quaternion
 from std_msgs.msg import Float32MultiArray
 from std_msgs.msg import MultiArrayLayout as MAL
 from std_msgs.msg import MultiArrayDimension as MAD
@@ -128,7 +128,6 @@ class ElevationMappingNode(Node):
         self.get_logger().info(f"Initialized map with length: {self._map.map_length}, resolution: {self._map.resolution}, cells: {self._map.cell_n}")
 
         self._map_q = None
-        self._map_t = None
 
     def initialize_ros(self) -> None:
         self._tf_buffer = tf2_ros.Buffer()
@@ -430,18 +429,11 @@ class ElevationMappingNode(Node):
         actual_map_length = (self._map.cell_n - 2) * self._map.resolution
         gm.info.length_x = actual_map_length
         gm.info.length_y = actual_map_length
-        if self._map_t is not None:
-            gm.info.pose.position.x = self._map_t.x
-            gm.info.pose.position.y = self._map_t.y
-            # grid_map_ros (and our RViz usage) treats GridMap as a horizontal 2.5D surface and ignores pose.z and
-            # pose.orientation. Foxglove's GridMap renderer *does* apply them, which can make the map appear tilted
-            # and shifted in Z when we embed the robot pose here. Keep pose.x/y as the map center in `map_frame`,
-            # but publish a neutral pose for visualization sanity.
-            gm.info.pose.position.z = 0.0
-        else:
-            gm.info.pose.position.x = float(center[0])
-            gm.info.pose.position.y = float(center[1])
-            gm.info.pose.position.z = 0.0
+        # The rolling map shifts in whole cells, so its center can differ
+        # from the continuous base position. Height layers already use map_frame Z.
+        gm.info.pose.position.x = float(center[0])
+        gm.info.pose.position.y = float(center[1])
+        gm.info.pose.position.z = 0.0
 
         gm.info.pose.orientation.x = 0.0
         gm.info.pose.orientation.y = 0.0
@@ -543,9 +535,7 @@ class ElevationMappingNode(Node):
 
             self._map.set_full_map(fused_layers, raw_layers, geometry)
 
-            pose_position = raw_msg.info.pose.position
             pose_orientation = raw_msg.info.pose.orientation
-            self._map_t = Vector3(x=pose_position.x, y=pose_position.y, z=pose_position.z)
             self._map_q = Quaternion(
                 x=pose_orientation.x,
                 y=pose_orientation.y,
@@ -802,8 +792,6 @@ class ElevationMappingNode(Node):
             return None
 
     def image_callback(self, camera_msg: Image, camera_info_msg: CameraInfo, sub_key: str) -> None:
-        self._last_t = camera_msg.header.stamp
-
         frame_sensor_id = camera_msg.header.frame_id
         if not frame_sensor_id:
             raise ValueError("Image header.frame_id is empty.")
@@ -848,10 +836,10 @@ class ElevationMappingNode(Node):
             camera_info_msg.height,
             camera_info_msg.width,
         )
+        self._last_t = camera_msg.header.stamp
         self._image_process_counter += 1
 
     def pointcloud_callback(self, msg: PointCloud2, sub_key: str) -> None:
-        self._last_t = msg.header.stamp
         additional_channels = list(self.param.subscriber_cfg[sub_key].get("channels", []))
         channels = ["x", "y", "z"] + additional_channels
 
@@ -933,6 +921,7 @@ class ElevationMappingNode(Node):
             R = quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3].astype(np.float32)
 
         self._map.input_pointcloud(pts, channels, R, t_np, 0, 0)
+        self._last_t = msg.header.stamp
         self._pointcloud_process_counter += 1
 
     def pose_update(self) -> None:
@@ -951,7 +940,6 @@ class ElevationMappingNode(Node):
         trans = np.array([t.x, t.y, t.z], dtype=np.float32)
         rot = quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3].astype(np.float32)
         self._map.move_to(trans, rot)
-        self._map_t = t
         self._map_q = q
 
     def update_variance(self) -> None:
